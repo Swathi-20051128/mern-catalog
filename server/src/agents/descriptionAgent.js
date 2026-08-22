@@ -24,7 +24,7 @@ Generate the following fields for each product:
 Rules:
 - Keep each description within its character limit.
 - Be accurate — only describe what's in the product data.
-- Return ONLY valid JSON — no markdown, no explanation.`;
+- Return ONLY a JSON object of the exact shape {"results": [{"mpn":"...", "productName":"...", "invoiceDesc":"...", "mobileDesc":"...", "shortDesc":"...", "longDesc1":"...", "retailDesc":"...", "marketingDescription":"...", "itemFeatures":["..."]}]} — one entry per product, in the same order given. No markdown, no explanation.`;
 
 /**
  * Generate descriptions for a batch of enriched products.
@@ -33,7 +33,6 @@ Rules:
  */
 async function generateDescriptionsBatch(items) {
   const userMessage = `Generate the fields for each product below.
-Return a JSON array in the same order with: "mpn", "productName", "invoiceDesc", "mobileDesc", "shortDesc", "longDesc1", "retailDesc", "marketingDescription", "itemFeatures".
 
 Products:
 ${JSON.stringify(
@@ -50,7 +49,7 @@ ${JSON.stringify(
   2
 )}
 
-Return ONLY a JSON array.`;
+Return ONLY a JSON object of the shape: {"results": [{"mpn":"...", "productName":"...", ...}]}`;
 
   try {
     const response = await client.chat.completions.create({
@@ -65,10 +64,14 @@ Return ONLY a JSON array.`;
 
     const raw = response.choices[0].message.content;
     const parsed = JSON.parse(raw);
-    const arr = Array.isArray(parsed) ? parsed : Object.values(parsed)[0];
+    const arr = Array.isArray(parsed.results)
+      ? parsed.results
+      : Array.isArray(parsed)
+      ? parsed
+      : Object.values(parsed).find((v) => Array.isArray(v));
 
     if (!Array.isArray(arr)) {
-      throw new Error("Unexpected description response shape");
+      throw new Error(`Unexpected description response shape: ${raw?.slice(0, 200)}`);
     }
 
     return items.map((item, i) => ({
@@ -83,7 +86,11 @@ Return ONLY a JSON array.`;
       itemFeatures: Array.isArray(arr[i]?.itemFeatures) ? arr[i].itemFeatures : [],
     }));
   } catch (err) {
-    console.error("[DescriptionAgent] Error:", err.message);
+    console.error(
+      `[DescriptionAgent] Error: ${err.message}` +
+        (err.status ? ` | status=${err.status}` : "") +
+        (err.code ? ` | code=${err.code}` : "")
+    );
     return items.map((item) => ({
       mpn: item.mpn,
       productName: "",

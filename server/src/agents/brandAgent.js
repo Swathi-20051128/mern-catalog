@@ -22,7 +22,7 @@ Rules:
 5. Common brands with ™ symbol: 3M™, CUBITRON™
 6. If brand cannot be determined, return the manufacturer name without trademark.
 7. Source field should be: "explicit_field", "description_keyword", "manufacturer", or "ml_inferred"
-8. Return ONLY valid JSON.`;
+8. Return ONLY a JSON object of the exact shape {"results": [{"mpn":"...", "brand":"...", "brandSource":"...", "brandConfident": true}]} — one entry per product, in the same order given. No markdown, no explanation.`;
 
 /**
  * Resolve brands for a batch of products.
@@ -73,7 +73,7 @@ function resolveExplicitBrand(item) {
 }
 
 async function resolveWithAI(items) {
-  const userMessage = `Resolve the brand for each product below. Return a JSON array in the same order.
+  const userMessage = `Resolve the brand for each product below.
 Each result: "mpn", "brand" (with trademark symbol if applicable), "brandSource" (one of: "description_keyword","manufacturer","ml_inferred"), "brandConfident" (true/false).
 
 Products:
@@ -87,7 +87,7 @@ ${JSON.stringify(
   2
 )}
 
-Return ONLY a JSON array.`;
+Return ONLY a JSON object of the shape: {"results": [{"mpn":"ABC123","brand":"...","brandSource":"...","brandConfident":true}]}`;
 
   try {
     const response = await client.chat.completions.create({
@@ -102,7 +102,15 @@ Return ONLY a JSON array.`;
 
     const raw = response.choices[0].message.content;
     const parsed = JSON.parse(raw);
-    const arr = Array.isArray(parsed) ? parsed : Object.values(parsed)[0];
+    const arr = Array.isArray(parsed.results)
+      ? parsed.results
+      : Array.isArray(parsed)
+      ? parsed
+      : Object.values(parsed).find((v) => Array.isArray(v));
+
+    if (!Array.isArray(arr)) {
+      throw new Error(`Unexpected brand response shape: ${raw?.slice(0, 200)}`);
+    }
 
     return items.map((item, i) => ({
       mpn: item.mpn,
@@ -112,7 +120,11 @@ Return ONLY a JSON array.`;
       _index: item._origIndex,
     }));
   } catch (err) {
-    console.error("[BrandAgent] Error:", err.message);
+    console.error(
+      `[BrandAgent] Error: ${err.message}` +
+        (err.status ? ` | status=${err.status}` : "") +
+        (err.code ? ` | code=${err.code}` : "")
+    );
     return items.map((item) => ({
       mpn: item.mpn,
       brand: item.manufacturer || "Unknown",

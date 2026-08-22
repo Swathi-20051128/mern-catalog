@@ -63,7 +63,7 @@ Use this taxonomy (choose the most specific match):
 - Uncategorized > Needs Manual Classification
 
 Rules:
-- Return ONLY valid JSON, no markdown, no explanation.
+- Return ONLY a JSON object of the exact shape {"results": [{"mpn":"...", "classpath":"...", "category":"...", "confidence_hint":"high"|"medium"|"low"}]} — one entry per product, in the same order given. No markdown, no explanation.
 - If unsure, use "Uncategorized > Needs Manual Classification".
 - Be consistent and precise.`;
 
@@ -73,8 +73,7 @@ Rules:
  * @returns {Promise<Array<{mpn: string, classpath: string, category: string, confidence_hint: string}>>}
  */
 async function classifyBatch(items) {
-  const userMessage = `Classify each of the following products. Return a JSON array with the same order as input.
-Each item should have: "mpn", "classpath", "category" (first segment of classpath), "confidence_hint" ("high"|"medium"|"low").
+  const userMessage = `Classify each of the following products.
 
 Products to classify:
 ${JSON.stringify(
@@ -83,8 +82,7 @@ ${JSON.stringify(
   2
 )}
 
-Return ONLY a JSON array, example:
-[{"mpn":"ABC123","classpath":"Abrasives > Coated Abrasives > Sanding Discs","category":"Abrasives","confidence_hint":"high"}]`;
+Return ONLY a JSON object of the shape: {"results": [{"mpn":"ABC123","classpath":"Abrasives > Coated Abrasives > Sanding Discs","category":"Abrasives","confidence_hint":"high"}]}`;
 
   try {
     const response = await client.chat.completions.create({
@@ -100,16 +98,25 @@ Return ONLY a JSON array, example:
     const raw = response.choices[0].message.content;
     const parsed = JSON.parse(raw);
 
-    // Handle both array response and {results: [...]} response
-    const results = Array.isArray(parsed) ? parsed : parsed.results || parsed.classifications || Object.values(parsed)[0];
+    // Prefer the documented "results" key; fall back to guessing for
+    // resilience against minor prompt drift or older cached responses.
+    const results = Array.isArray(parsed.results)
+      ? parsed.results
+      : Array.isArray(parsed)
+      ? parsed
+      : parsed.classifications || Object.values(parsed).find((v) => Array.isArray(v));
 
     if (!Array.isArray(results)) {
-      throw new Error("Unexpected response shape from classifier");
+      throw new Error(`Unexpected response shape from classifier: ${raw?.slice(0, 200)}`);
     }
 
     return results;
   } catch (err) {
-    console.error("[ClassifierAgent] Error:", err.message);
+    console.error(
+      `[ClassifierAgent] Error: ${err.message}` +
+        (err.status ? ` | status=${err.status}` : "") +
+        (err.code ? ` | code=${err.code}` : "")
+    );
     // Return fallback for all items
     return items.map((i) => ({
       mpn: i.mpn,

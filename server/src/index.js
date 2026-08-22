@@ -23,7 +23,27 @@ const sessionsRouter = require("./routes/sessions");
 const app  = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// Allow requests from the Vercel frontend and local dev.
+// Set CORS_ORIGIN in server/.env or Render/Railway env vars to your exact
+// Vercel URL, e.g. CORS_ORIGIN=https://mern-catalog.vercel.app
+const allowedOrigins = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean)
+  .concat(["http://localhost:5173", "http://localhost:3000"]);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // Allow server-to-server calls (no origin) and listed origins
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // ── Health check ──────────────────────────────────────────────────────────────

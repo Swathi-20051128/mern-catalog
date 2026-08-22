@@ -1,8 +1,13 @@
 import axios from "axios";
 
-const api = axios.create({ baseURL: "/api" });
+// In production (Vercel), set VITE_API_URL in the Vercel dashboard to your
+// deployed backend, e.g. https://your-backend.onrender.com/api
+// In local dev, Vite proxy handles "/api" -> http://localhost:5000
+const BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
-// ── Sessions ──────────────────────────────────────────────────────────────────
+const api = axios.create({ baseURL: BASE_URL });
+
+// -- Sessions -----------------------------------------------------------------
 export const getSessions = () => api.get("/sessions").then((r) => r.data);
 
 export const getSession = (sessionId) =>
@@ -11,13 +16,13 @@ export const getSession = (sessionId) =>
 export const deleteSession = (sessionId) =>
   api.delete(`/sessions/${sessionId}`).then((r) => r.data);
 
-// ── Stats (session-scoped) ────────────────────────────────────────────────────
+// -- Stats (session-scoped) ---------------------------------------------------
 export const getStats = (sessionId) =>
   api.get(`/stats/${sessionId}`).then((r) => r.data);
 
 export const getGlobalStats = () => api.get("/stats").then((r) => r.data);
 
-// ── Records (session-scoped) ──────────────────────────────────────────────────
+// -- Records (session-scoped) -------------------------------------------------
 export const getRecords = (sessionId, params) =>
   api.get("/records", { params: { sessionId, ...params } }).then((r) => r.data);
 
@@ -25,7 +30,7 @@ export const getRecord = (id) =>
   api.get(`/records/${id}`).then((r) => r.data);
 
 export const exportCsvUrl = (sessionId) =>
-  `/api/records/export/csv?sessionId=${sessionId}`;
+  `${BASE_URL}/records/export/csv?sessionId=${sessionId}`;
 
 export const downloadEnrichedCsv = (sessionId, filename = "enriched") => {
   const a = document.createElement("a");
@@ -36,7 +41,7 @@ export const downloadEnrichedCsv = (sessionId, filename = "enriched") => {
   document.body.removeChild(a);
 };
 
-// ── Upload ────────────────────────────────────────────────────────────────────
+// -- Upload -------------------------------------------------------------------
 export const uploadFile = (file, onProgress) => {
   const form = new FormData();
   form.append("file", file);

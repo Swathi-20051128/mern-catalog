@@ -83,8 +83,15 @@ function scoreAll(enrichedItems) {
       hasManufacturer: !!item.manufacturer,
       brandConfident: item.brandConfident || false,
       classConfident: item.classpath && !item.classpath.startsWith("Uncategorized"),
-      attrCount: Object.keys(item.attributes || {}).length,
-      hasAllDescriptions: !!(item.invoiceDesc && item.mobileDesc && item.productTitle && item.longDescription),
+      // Same bug as mongoStore.computeSessionStats: item.attributes is
+      // always {} (legacy field). Real attributes are in productAttributes.
+      attrCount: Array.isArray(item.productAttributes) ? item.productAttributes.length : 0,
+      // productTitle/longDescription are legacy field names that the
+      // current descriptionAgent never populates (it sets productName/
+      // longDesc1/etc instead), so this was always false — silently
+      // capping every row's confidence score at 90 max, and effectively
+      // ~70 in practice since it also zeroed attrCount above.
+      hasAllDescriptions: !!(item.invoiceDesc && item.mobileDesc && item.productName && item.longDesc1),
       brandSource: item.brandSource || "",
     });
     return { ...item, confidence, needsReview, scoreBreakdown };

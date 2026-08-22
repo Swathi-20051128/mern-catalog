@@ -110,7 +110,11 @@ async function computeSessionStats(sessionId) {
   const needsReview  = rows.filter((r) => r.needsReview).length;
   const avgConfidence = Math.round(rows.reduce((s, r) => s + (r.confidence || 0), 0) / total);
   const categorized  = rows.filter((r) => r.classpath && !r.classpath.startsWith("Uncategorized")).length;
-  const withAttrs    = rows.filter((r) => Object.keys(r.attributes || {}).length > 0).length;
+  // NOTE: r.attributes is a legacy/back-compat field that's always saved as
+  // {} — the actual extracted attributes live in r.productAttributes (an
+  // array). This was always reporting 0 attributes extracted regardless of
+  // what the AttributeAgent actually found.
+  const withAttrs    = rows.filter((r) => Array.isArray(r.productAttributes) && r.productAttributes.length > 0).length;
 
   const byCategory = {};
   for (const r of rows) {

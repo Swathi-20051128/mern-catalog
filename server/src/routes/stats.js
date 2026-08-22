@@ -14,8 +14,12 @@ router.get("/:sessionId", async (req, res) => {
     const session = await store.getSession(req.params.sessionId);
     if (!session) return res.status(404).json({ error: "Session not found." });
 
-    // If session is done, return cached stats (fast)
-    if (session.status === "done" && session.stats?.categoryBreakdown?.length > 0) {
+    // If session is done AND the cached stats look complete, return them (fast).
+    // Older sessions processed before the stats-caching fix only have a
+    // partial object cached (missing `total`/`categorizedPct`/etc), so guard
+    // on `total` specifically rather than just categoryBreakdown — otherwise
+    // this branch keeps serving that stale, incomplete cache forever.
+    if (session.status === "done" && session.stats?.categoryBreakdown?.length > 0 && session.stats?.total) {
       return res.json({
         ...session.stats,
         sessionId:    String(session._id),
@@ -27,8 +31,15 @@ router.get("/:sessionId", async (req, res) => {
       });
     }
 
-    // Otherwise compute live stats (session still processing or cache empty)
+    // Otherwise compute live stats (session still processing, cache empty,
+    // or cache is stale/incomplete from before the stats-caching fix)
     const stats = await store.computeSessionStats(String(session._id));
+
+    // Repair the stale cache in place so this session is fast next time too.
+    if (session.status === "done") {
+      await store.updateSession(String(session._id), { stats });
+    }
+
     res.json({
       ...stats,
       sessionId:    String(session._id),

@@ -11,6 +11,12 @@ const RecordSchema = new mongoose.Schema(
     manufacturer:        { type: String, default: "" },
     manufacturerCode:    { type: String, default: "" },
 
+    // Raw pass-through input columns (Delivery Format requires these
+    // to be echoed back alongside the enriched fields).
+    e1Brand:      { type: String, default: "" },
+    unilogBrand:  { type: String, default: "" },
+    dibBrand:     { type: String, default: "" },
+
     // AI-resolved brand and related new fields
     brand:          { type: String, default: "" },
     brandSource:    { type: String, default: "" },

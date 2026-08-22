@@ -111,14 +111,14 @@ router.post("/", upload.single("file"), async (req, res) => {
         status: "done",
         processedCount: enriched.length,
         processingCompletedAt: new Date(),
-        stats: {
-          avgConfidence:     stats.avgConfidence,
-          categorized:       stats.categorized,
-          needsReview:       stats.needsReview,
-          withAttrs:         stats.withAttrs,
-          categoryBreakdown: stats.categoryBreakdown,
-          confidenceBuckets: stats.confidenceBuckets,
-        },
+        // Cache the FULL stats object — previously only a subset of fields
+        // was cached here (avgConfidence/categorized/needsReview/withAttrs/
+        // categoryBreakdown/confidenceBuckets), silently dropping `total`,
+        // `categorizedPct`, `withAttrsPct`, and `needsReviewPct`. Those are
+        // what the dashboard's "Total records" and "% of rows" stat cards
+        // read, so they rendered blank/"undefined%" on every subsequent
+        // page load once the cached-stats branch in stats.js kicked in.
+        stats,
       });
 
       console.log(`[Upload] Session ${sessionId} complete. ${enriched.length} records stored.`);

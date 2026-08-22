@@ -41,9 +41,15 @@ router.get("/export/csv", async (req, res) => {
     const rows = await store.getAllRecordsBySession(sessionId);
     const session = await store.getSession(sessionId);
 
-    // Exact output columns requested in exact order
+    // Exact output columns, in the exact order required by the client's
+    // "Delivery Format" spec (Unihack__Expected_Output_-_Delivery_Format.csv).
+    // NOTE: this previously stopped at 222 columns and silently dropped 30
+    // columns the spec requires (Ref URL 2-5, Standard Packaging Information,
+    // all image/document reference columns). Fixed to match the full 252-column
+    // header exactly.
     const cols = [
-      "MFR URL", "Ref URL 1", "PART_NUMBER", "Dept", "Class", "Fine", 
+      "MFR URL", "Ref URL 1", "Ref URL 2", "Ref URL 3", "Ref URL 4", "Ref URL 5",
+      "PART_NUMBER", "Dept", "Class", "Fine",
       "SKU - MY_PART_NUMBER", "Mfg_Part_Num", "Part_Desc", "E1_Brand", "Unilog_Brand", "DIB_Brand", "Part_Manuf",
       "MANUFACTURER_NAME", "BRAND_NAME", "TRADE_NAME", "MANUFACTURER_PART_NUMBER", "ALTERNATE_PART_NUMBER",
       "Classpath", "MOBILE_DESC", "INVOICE_DESC", "SHORT_DESC", "LONG_DESC1", "RETAIL_DESC", "MARKETING_DESCRIPTION"
@@ -61,8 +67,15 @@ router.get("/export/csv", async (req, res) => {
 
     cols.push(
       "UPC", "EAN", "GTIN", "UNSPSC", "Warranty", "List Price", "Selling Qty", "Selling UOM",
-      "LENGTH", "LENGTH_UOM", "HEIGHT", "HEIGHT_UOM", "WIDTH", "WIDTH_UOM", 
-      "WEIGHT", "WEIGHT_UOM", "VOLUME", "VOLUME_UOM", "Country Of Origin", "Discontinued", "Actual Image (Yes/No)"
+      "Standard Packaging Information",
+      "LENGTH", "LENGTH_UOM", "HEIGHT", "HEIGHT_UOM", "WIDTH", "WIDTH_UOM",
+      "WEIGHT", "WEIGHT_UOM", "VOLUME", "VOLUME_UOM",
+      "Product Image", "Alternate Image 1", "Alternate Image 2", "Alternate Image 3", "Alternate Image 4",
+      "SDS", "SDS_1", "Warranty Information", "Catalog", "Specification Sheet",
+      "Instruction/Installation Manual", "Service Manual", "Owners/User Manual", "Line Drawing", "MTR", "RoHS",
+      "Full Engineering Drawing", "Energy Star Guide", "Technical Bulletin", "Submittal", "Compatibility Chart",
+      "Size Chart", "Product Label/Insert", "Video Link", "Video Link 1",
+      "Country Of Origin", "Discontinued", "Actual Image (Yes/No)"
     );
 
     const esc = (v) => {
@@ -72,9 +85,21 @@ router.get("/export/csv", async (req, res) => {
 
     const lines = [cols.join(",")];
     for (const r of rows) {
+      // Dept / Class / Fine were listed as output columns but were never
+      // populated — split them out of the generated Classpath
+      // (e.g. "Abrasives > Coated Abrasives > Sanding Discs").
+      const [deptSeg = "", classSeg = "", fineSeg = ""] =
+        (r.classpath || "").split(">").map((s) => s.trim());
+
       const rowMap = {
+        "Dept": deptSeg,
+        "Class": classSeg,
+        "Fine": fineSeg,
         "Mfg_Part_Num": r.mpn,
         "Part_Desc": r.originalDescription,
+        "E1_Brand": r.e1Brand,
+        "Unilog_Brand": r.unilogBrand,
+        "DIB_Brand": r.dibBrand,
         "Part_Manuf": r.manufacturer,
         "MANUFACTURER_NAME": r.manufacturerName || r.manufacturer,
         "BRAND_NAME": r.brandName || r.brand,
@@ -117,7 +142,7 @@ router.get("/export/csv", async (req, res) => {
         rowMap[`ATTRIBUTE_UOM ${i}`] = attr ? attr.uom : "";
       }
 
-      const line = cols.map(c => esc(rowMap[c] || ""));
+      const line = cols.map(c => esc(rowMap[c] ?? ""));
       lines.push(line.join(","));
     }
 

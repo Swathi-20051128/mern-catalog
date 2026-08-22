@@ -19,7 +19,13 @@ const { resolveBrandBatch }        = require("./brandAgent");
 const { extractAttributesBatch }   = require("./attributeAgent");
 const { generateDescriptionsBatch, deriveItemType } = require("./descriptionAgent");
 const { scoreAll }                 = require("./confidenceAgent");
-const BATCH_SIZE = 10; // rows per GPT call (balance speed vs token limit)
+// Rows per GPT call. Fewer, larger batches means fewer total round-trips
+// for the same concurrency — but each batch's JSON response gets bigger,
+// so pushing this too high risks the model truncating output mid-response
+// (which triggers the fallback for that whole chunk). 10→18 is a moderate
+// step up; re-check your Uncategorized/blank-attribute rate after raising
+// this, since silent truncation looks identical to a classification miss.
+const BATCH_SIZE = Number(process.env.PIPELINE_BATCH_SIZE) || 18;
 
 // How many chunks (10-row groups) to run concurrently. Previously this was
 // implicitly 1 — chunks ran one at a time in a for-await loop, so wall time
@@ -250,8 +256,12 @@ async function runAgentPipeline(rawRows, onProgress) {
 
     // Small delay between GROUPS (not every chunk) to stay well under
     // rate limits while still processing CONCURRENCY chunks at once.
+    // Tune via PIPELINE_GROUP_DELAY_MS if needed — lower it once you've
+    // confirmed higher concurrency isn't hitting 429s, since with fewer/
+    // larger batches (BATCH_SIZE above) there are fewer groups total and
+    // this delay makes up a bigger share of overall time.
     if (g + CONCURRENCY < chunks.length) {
-      await sleep(300);
+      await sleep(Number(process.env.PIPELINE_GROUP_DELAY_MS) || 150);
     }
   }
 

@@ -56,7 +56,13 @@ export default function Upload() {
         setPhase("processing");
       })
       .catch((e) => {
-        setError(e.response?.data?.error || e.message);
+        // Always store a plain string — rendering a non-string object as a
+        // React child throws Minified React Error #31.
+        const msg =
+          (typeof e.response?.data?.error === "string" && e.response.data.error) ||
+          (typeof e.message === "string" && e.message) ||
+          "Upload failed. Please try again.";
+        setError(msg);
         setPhase("error");
       })
       .finally(() => setUploading(false));

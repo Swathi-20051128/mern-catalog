@@ -20,6 +20,17 @@ const { extractAttributesBatch }   = require("./attributeAgent");
 const { generateDescriptionsBatch, deriveItemType } = require("./descriptionAgent");
 const { scoreAll }                 = require("./confidenceAgent");
 const BATCH_SIZE = 10; // rows per GPT call (balance speed vs token limit)
+
+// How many chunks (10-row groups) to run concurrently. Previously this was
+// implicitly 1 — chunks ran one at a time in a for-await loop, so wall time
+// was ~100 sequential round-trips for a 1000-row file (1-2 min). Running
+// several chunks concurrently cuts that roughly proportionally, since each
+// chunk's agent calls are independent of every other chunk's.
+// Tune via PIPELINE_CONCURRENCY env var if you hit rate limits — lower it
+// (e.g. 2) if you start seeing 429s in the agent error logs, raise it
+// (e.g. 8) if your OpenAI tier has headroom and you want it faster still.
+const CONCURRENCY = Number(process.env.PIPELINE_CONCURRENCY) || 4;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const PLACEHOLDER_RE = /^--.*--$/;
@@ -188,23 +199,65 @@ async function runAgentPipeline(rawRows, onProgress) {
 
   // Split into chunks
   const chunks = chunkArray(normalized, BATCH_SIZE);
-  const allResults = [];
+  const allResults = new Array(chunks.length); // pre-sized so order survives concurrency
+  let completedRows = 0;
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunkResult = await processChunk(chunks[i], i, chunks.length);
-    allResults.push(...chunkResult);
+  // Process chunks in bounded-size groups, CONCURRENCY at a time, instead of
+  // one at a time. Each group runs in parallel via Promise.all; groups
+  // themselves still run one after another so total in-flight requests to
+  // OpenAI never exceeds CONCURRENCY chunks' worth. Order is preserved
+  // because Promise.all resolves in the same order its inputs were given,
+  // and each chunk writes to its own fixed slot in allResults.
+  for (let g = 0; g < chunks.length; g += CONCURRENCY) {
+    const group = chunks.slice(g, g + CONCURRENCY);
 
-    const pct = Math.round(((i + 1) / chunks.length) * 100);
-    if (onProgress) onProgress(pct, `Processed ${allResults.length}/${rawRows.length} rows`);
+    const groupResults = await Promise.all(
+      group.map((chunk, offset) => {
+        const chunkIndex = g + offset;
+        // Isolate failures per-chunk: if something outside the agents'
+        // own try/catch throws unexpectedly, don't let it abort every
+        // other chunk still in flight — fall back to unenriched rows
+        // for just this chunk instead.
+        return processChunk(chunk, chunkIndex, chunks.length).catch((err) => {
+          console.error(`[Orchestrator] Chunk ${chunkIndex + 1}/${chunks.length} failed unexpectedly:`, err.message);
+          return scoreAll(
+            chunk.map((row) => ({
+              ...row,
+              classpath: "Uncategorized > Needs Manual Classification",
+              category: "Uncategorized",
+              brand: row.manufacturer || "Unknown",
+              brandSource: "manufacturer",
+              brandConfident: false,
+              itemType: "",
+              productAttributes: [],
+              attributes: {},
+              productName: "", invoiceDesc: "", mobileDesc: "", shortDesc: "",
+              longDesc1: row.desc || "", retailDesc: "", marketingDescription: "",
+              itemFeatures: [], agentUsed: false, mlUsed: false,
+            }))
+          );
+        });
+      })
+    );
 
-    // Small delay between chunks to avoid rate-limit hits
-    if (i < chunks.length - 1) {
+    groupResults.forEach((chunkResult, offset) => {
+      allResults[g + offset] = chunkResult;
+      completedRows += chunkResult.length;
+    });
+
+    const pct = Math.round((Math.min(g + CONCURRENCY, chunks.length) / chunks.length) * 100);
+    if (onProgress) onProgress(pct, `Processed ${completedRows}/${rawRows.length} rows`);
+
+    // Small delay between GROUPS (not every chunk) to stay well under
+    // rate limits while still processing CONCURRENCY chunks at once.
+    if (g + CONCURRENCY < chunks.length) {
       await sleep(300);
     }
   }
 
-  console.log(`[Orchestrator] Pipeline complete. ${allResults.length} rows enriched.`);
-  return allResults;
+  const flatResults = allResults.flat();
+  console.log(`[Orchestrator] Pipeline complete. ${flatResults.length} rows enriched.`);
+  return flatResults;
 }
 
 module.exports = { runAgentPipeline };

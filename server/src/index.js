@@ -23,27 +23,38 @@ const sessionsRouter = require("./routes/sessions");
 const app  = express();
 const PORT = process.env.PORT || 5000;
 
-// Allow requests from the Vercel frontend and local dev.
-// Set CORS_ORIGIN in server/.env or Render/Railway env vars to your exact
-// Vercel URL, e.g. CORS_ORIGIN=https://mern-catalog.vercel.app
-const allowedOrigins = (process.env.CORS_ORIGIN || "")
+// CORS configuration.
+// - If CORS_ORIGIN env var is set (comma-separated list of allowed origins),
+//   only those origins are permitted.
+// - If CORS_ORIGIN is NOT set, all origins are allowed (safe default for
+//   initial deploys; lock it down once your Vercel URL is known).
+//
+// Set in Render dashboard:  CORS_ORIGIN=https://mern-catalog.vercel.app
+const rawOrigins = (process.env.CORS_ORIGIN || "")
   .split(",")
   .map((o) => o.trim())
-  .filter(Boolean)
-  .concat(["http://localhost:5173", "http://localhost:3000"]);
+  .filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // Allow server-to-server calls (no origin) and listed origins
-      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-      cb(new Error(`CORS: origin ${origin} not allowed`));
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-  })
-);
+const corsOptions = {
+  origin: rawOrigins.length
+    ? (origin, cb) => {
+        const allowed = [
+          ...rawOrigins,
+          "http://localhost:5173",
+          "http://localhost:3000",
+        ];
+        if (!origin || allowed.includes(origin)) return cb(null, true);
+        cb(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    : true, // allow all origins when CORS_ORIGIN is not configured
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+// Respond to all OPTIONS preflight requests (required for multipart uploads)
+app.options("*", cors(corsOptions));
 app.use(express.json());
 
 // ── Health check ──────────────────────────────────────────────────────────────

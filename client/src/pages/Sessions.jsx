@@ -41,14 +41,22 @@ function StatusBadge({ status }) {
 export default function Sessions() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading]   = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const navigate = useNavigate();
 
   const load = () => {
     setLoading(true);
     getSessions()
-      .then(setSessions)
-      .catch(console.error)
+      .then((data) => {
+        // Guard: API may return an error object or non-array on failure
+        setSessions(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        console.error("Failed to load sessions:", err);
+        setLoadError("Could not connect to server. Please ensure the backend is running.");
+        setSessions([]);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -57,6 +65,7 @@ export default function Sessions() {
     // Auto-refresh while there are in-progress sessions
     const interval = setInterval(() => {
       setSessions((prev) => {
+        if (!Array.isArray(prev)) return prev;
         const hasPending = prev.some((s) => s.status === "processing" || s.status === "uploading");
         if (hasPending) load();
         return prev;
@@ -98,6 +107,16 @@ export default function Sessions() {
       <div className="px-8 py-6">
         {loading && (
           <div className="text-ink/40 text-sm py-20 text-center">Loading sessions…</div>
+        )}
+
+        {!loading && loadError && (
+          <div className="flex items-start gap-3 bg-low-soft border border-low/20 text-low rounded-xl px-5 py-4 text-[13px] mt-4">
+            <AlertCircle size={18} className="mt-0.5 shrink-0" />
+            <div>
+              <div className="font-medium mb-1">Failed to load sessions</div>
+              <div className="text-low/80">{loadError}</div>
+            </div>
+          </div>
         )}
 
         {!loading && sessions.length === 0 && (
